@@ -108,8 +108,18 @@ async function callGemini(prompt: string, images: InlineImage[], aspect: string)
 /* ------------------------------- Pollinations ----------------------------- */
 
 async function callPollinations(prompt: string, images: InlineImage[], width: number, height: number) {
-  const key = process.env.POLLINATIONS_API_KEY;
+  // Nettoie les erreurs de copier-coller courantes : espaces, retours à la ligne, guillemets, préfixe "Bearer".
+  const key = (process.env.POLLINATIONS_API_KEY ?? '')
+    .trim()
+    .replace(/^["']|["']$/g, '')
+    .replace(/^Bearer\s+/i, '')
+    .trim();
   if (!key) throw new HttpError(400, 'Moteur Pollinations non configuré (POLLINATIONS_API_KEY manquante).');
+  if (key.startsWith('pk_'))
+    throw new HttpError(
+      400,
+      'Pollinations : la clé configurée est une clé publique (pk_). Il faut une clé secrète sk_ — à créer sur enter.pollinations.ai, onglet Keys.',
+    );
   const model = process.env.POLLINATIONS_MODEL || POLLINATIONS_DEFAULT_MODEL;
   const round16 = (n: number) => Math.max(256, Math.round(n / 16) * 16);
 
@@ -135,7 +145,9 @@ async function callPollinations(prompt: string, images: InlineImage[], width: nu
   };
   if (!r.ok) {
     const msg = typeof json.error === 'string' ? json.error : json.error?.message ?? `HTTP ${r.status}`;
-    const hint = r.status === 402 ? ' — solde Pollen épuisé.' : r.status === 401 ? ' — clé invalide.' : '';
+    const hint = r.status === 402 ? ' — solde Pollen épuisé.' : r.status === 401
+          ? ` — clé refusée (clé reçue : ${key.slice(0, 3)}… ${key.length} caractères). Vérifie qu'elle commence par sk_, qu'elle est active sur enter.pollinations.ai, puis redéploie.`
+          : '';
     throw new HttpError(r.status === 429 ? 429 : 502, `Pollinations : ${msg}${hint}`);
   }
   const first = json.data?.[0];
