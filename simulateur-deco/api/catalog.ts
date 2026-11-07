@@ -1,4 +1,4 @@
-import { catalogHandler } from './_lib/handlers';
-import { vercel } from './_lib/http';
+import { catalogHandler } from './_lib/handlers.js';
+import { vercel } from './_lib/http.js';
 
 export default vercel(catalogHandler);

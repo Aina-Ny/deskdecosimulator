@@ -1,4 +1,4 @@
-import type { Product } from '../../shared/types';
+import type { Product } from '../../shared/types.js';
 
 const KEY = 'simulateur-deco:catalog:v1';
 

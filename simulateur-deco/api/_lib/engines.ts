@@ -1,5 +1,5 @@
-import type { AppConfig, EngineId, GenerateRequest, GenerateResponse, InlineImage } from '../../shared/types';
-import { HttpError } from './http';
+import type { AppConfig, EngineId, GenerateRequest, GenerateResponse, InlineImage } from '../../shared/types.js';
+import { HttpError } from './http.js';
 
 const GEMINI_DEFAULT_MODEL = 'gemini-3.1-flash-image';
 const POLLINATIONS_DEFAULT_MODEL = 'google/gemini-2.5-flash-image';

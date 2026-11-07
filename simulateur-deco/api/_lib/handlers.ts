@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import { CATEGORIES } from '../../shared/categories';
-import type { AppConfig, GenerateRequest, Product } from '../../shared/types';
-import { appAuthRequired, requireAdmin, requireApp } from './auth';
-import { availableEngines, defaultEngine, generate } from './engines';
-import { HttpError, ok, type Handler } from './http';
-import { getCatalog, saveCatalog, storageKind } from './store';
+import { CATEGORIES } from '../../shared/categories.js';
+import type { AppConfig, GenerateRequest, Product } from '../../shared/types.js';
+import { appAuthRequired, requireAdmin, requireApp } from './auth.js';
+import { availableEngines, defaultEngine, generate } from './engines.js';
+import { HttpError, ok, type Handler } from './http.js';
+import { getCatalog, saveCatalog, storageKind } from './store.js';
 
 export const configHandler: Handler = async (req) => {
   if (req.method !== 'GET') throw new HttpError(405, 'Méthode non autorisée');

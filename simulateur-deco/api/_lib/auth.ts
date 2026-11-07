@@ -1,5 +1,5 @@
 import { timingSafeEqual } from 'node:crypto';
-import { HttpError, type ApiReq } from './http';
+import { HttpError, type ApiReq } from './http.js';
 
 function same(a: string, b: string) {
   const ba = Buffer.from(a);

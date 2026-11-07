@@ -1,4 +1,4 @@
-import { configHandler } from './_lib/handlers';
-import { vercel } from './_lib/http';
+import { configHandler } from './_lib/handlers.js';
+import { vercel } from './_lib/http.js';
 
 export default vercel(configHandler);
