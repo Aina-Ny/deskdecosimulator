@@ -1,4 +1,4 @@
-export type EngineId = 'gemini' | 'pollinations' | 'mock';
+export type EngineId = 'gemini' | 'pollinations' | 'cloudflare' | 'mock';
 
 export interface InlineImage {
   mime: string;

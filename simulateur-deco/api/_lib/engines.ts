@@ -3,6 +3,7 @@ import { HttpError } from './http.js';
 
 const GEMINI_DEFAULT_MODEL = 'gemini-3.1-flash-image';
 const POLLINATIONS_DEFAULT_MODEL = 'google/gemini-2.5-flash-image';
+const CLOUDFLARE_DEFAULT_MODEL = '@cf/black-forest-labs/flux-2-klein-4b';
 
 export const GEMINI_RATIOS = ['1:1', '3:2', '2:3', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9'];
 
@@ -12,6 +13,8 @@ export function availableEngines(): AppConfig['engines'] {
     list.push({ id: 'gemini', label: 'Google Gemini (Nano Banana)', model: process.env.GEMINI_MODEL || GEMINI_DEFAULT_MODEL });
   if (process.env.POLLINATIONS_API_KEY)
     list.push({ id: 'pollinations', label: 'Pollinations', model: process.env.POLLINATIONS_MODEL || POLLINATIONS_DEFAULT_MODEL });
+  if (cloudflareEnv())
+    list.push({ id: 'cloudflare', label: 'Cloudflare (gratuit)', model: process.env.CLOUDFLARE_MODEL || CLOUDFLARE_DEFAULT_MODEL });
   if (process.env.MOCK_ENGINE === '1') list.push({ id: 'mock', label: 'Moteur factice (test)', model: 'mock' });
   return list;
 }
@@ -160,6 +163,58 @@ async function callPollinations(prompt: string, images: InlineImage[], width: nu
   throw new HttpError(502, 'Pollinations n’a renvoyé aucune image.');
 }
 
+/* ------------------------- Cloudflare Workers AI ------------------------- */
+/* Gratuit : 10 000 neurones/jour (offre Workers Free, sans carte bancaire). */
+
+function cloudflareEnv() {
+  const account = (process.env.CLOUDFLARE_ACCOUNT_ID ?? '').trim();
+  const token = (process.env.CLOUDFLARE_API_TOKEN ?? '').trim().replace(/^Bearer\s+/i, '');
+  return account && token ? { account, token } : null;
+}
+
+async function callCloudflare(prompt: string, images: InlineImage[], width: number, height: number) {
+  const env = cloudflareEnv();
+  if (!env) throw new HttpError(400, 'Moteur Cloudflare non configuré (CLOUDFLARE_ACCOUNT_ID / CLOUDFLARE_API_TOKEN).');
+  const model = process.env.CLOUDFLARE_MODEL || CLOUDFLARE_DEFAULT_MODEL;
+  // Sortie : bord long 1024 px, multiples de 16.
+  const scale = 1024 / Math.max(width, height);
+  const r16 = (n: number) => Math.max(256, Math.round((n * scale) / 16) * 16);
+
+  const form = new FormData();
+  // Cloudflare limite la taille d'un prompt : on garde l'essentiel.
+  form.append('prompt', prompt.slice(0, 2000));
+  images.slice(0, 4).forEach((img, i) => {
+    form.append(`input_image_${i}`, new Blob([Buffer.from(img.data, 'base64')], { type: img.mime }), `image-${i}.jpg`);
+  });
+  form.append('width', String(r16(width)));
+  form.append('height', String(r16(height)));
+
+  const r = await fetch(`https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(env.account)}/ai/run/${model}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${env.token}` },
+    body: form,
+    signal: AbortSignal.timeout(110_000),
+  });
+  const json = (await r.json().catch(() => ({}))) as {
+    success?: boolean;
+    result?: { image?: string };
+    image?: string;
+    errors?: { message?: string; code?: number }[];
+  };
+  const image = json.result?.image ?? json.image;
+  if (!r.ok || !image) {
+    const msg = json.errors?.map((e) => e.message).filter(Boolean).join(' · ') || `HTTP ${r.status}`;
+    const hint =
+      r.status === 401 || r.status === 403
+        ? ' — jeton ou identifiant de compte invalide (le jeton doit avoir la permission « Workers AI »).'
+        : r.status === 429 || /neuron|quota|limit/i.test(msg)
+          ? ' — quota gratuit du jour atteint (remis à zéro à 1 h du matin, heure de Paris).'
+          : '';
+    throw new HttpError(r.status === 429 ? 429 : 502, `Cloudflare : ${msg}${hint}`);
+  }
+  return { image: { mime: image.startsWith('/9j') ? 'image/jpeg' : 'image/png', data: image }, model };
+}
+
 /* --------------------------------- Entrée -------------------------------- */
 
 function validate(req: GenerateRequest) {
@@ -171,9 +226,9 @@ function validate(req: GenerateRequest) {
 }
 
 /** Décrit au modèle le rôle de chaque image, d'après celles réellement transmises. */
-function imageLegend(products: { name: string }[], inspirationCount: number) {
-  const lines = ['', 'INPUT IMAGES:', '- Image 1: the original office photo to edit (the base scene).'];
-  let n = 2;
+function imageLegend(products: { name: string }[], inspirationCount: number, base = 1) {
+  const lines = ['', 'INPUT IMAGES:', `- Image ${base}: the original office photo to edit (the base scene).`];
+  let n = base + 1;
   for (const p of products) lines.push(`- Image ${n++}: product reference for "${p.name}" — reproduce this item as faithfully as possible.`);
   for (let i = 0; i < inspirationCount; i++)
     lines.push(`- Image ${n++}: style inspiration only — borrow mood, colors and materials, never its layout, walls or furniture.`);
@@ -185,15 +240,23 @@ export async function generate(req: GenerateRequest): Promise<GenerateResponse> 
   const engines = availableEngines();
   if (!engines.some((e) => e.id === req.engine)) throw new HttpError(400, `Moteur « ${req.engine} » indisponible.`);
 
-  const fetched = await Promise.all(
-    (req.productRefs ?? []).map(async (p) => ({ name: p.name, img: await fetchProductImage(p.imageUrl) })),
-  );
+  // Cloudflare : 4 images max, toutes < 512 px (redimensionnées côté navigateur).
+  // Les photos produit, de taille inconnue, ne sont donc pas transmises : elles restent décrites dans le prompt.
+  const isCf = req.engine === 'cloudflare';
+  const fetched = isCf
+    ? []
+    : await Promise.all(
+        (req.productRefs ?? []).map(async (p) => ({ name: p.name, img: await fetchProductImage(p.imageUrl) })),
+      );
   const okProducts = fetched.filter((p): p is { name: string; img: InlineImage } => p.img !== null);
   const productImages = okProducts.map((p) => p.img);
   // Ordre : 1 = photo source, puis produits, puis inspirations (cf. imageLegend).
-  const inspirations = req.inspirations ?? [];
+  const inspirations = (req.inspirations ?? []).slice(0, isCf ? 3 : 4);
   const images = [req.source, ...productImages, ...inspirations];
-  const prompt = req.prompt + '\n' + imageLegend(okProducts, inspirations.length);
+  // Cloudflare numérote les images à partir de 0 et tronque les longs prompts : la légende passe en tête.
+  const prompt = isCf
+    ? imageLegend(okProducts, inspirations.length, 0).trim() + '\n\n' + req.prompt.replaceAll('image 1', 'image 0')
+    : req.prompt + '\n' + imageLegend(okProducts, inspirations.length);
 
   if (req.engine === 'mock') {
     await new Promise((r) => setTimeout(r, 600));
@@ -203,6 +266,8 @@ export async function generate(req: GenerateRequest): Promise<GenerateResponse> 
   const out =
     req.engine === 'gemini'
       ? await callGemini(prompt, images, req.aspect)
-      : await callPollinations(prompt, images, req.width, req.height);
+      : req.engine === 'cloudflare'
+        ? await callCloudflare(prompt, images, req.width, req.height)
+        : await callPollinations(prompt, images, req.width, req.height);
   return { ...out, engine: req.engine, productRefsUsed: productImages.length };
 }

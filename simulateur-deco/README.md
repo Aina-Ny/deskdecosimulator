@@ -30,6 +30,8 @@ Web app interne : on charge une photo du bureau sans déco, on protège ce qui n
 
 ### Clés des moteurs
 
+- **Cloudflare Workers AI (gratuit, recommandé pour démarrer)** : crée un compte gratuit sur dash.cloudflare.com, puis va dans *AI → Workers AI → Use REST API*. Copie l'**Account ID** (`CLOUDFLARE_ACCOUNT_ID`) et crée un **Workers AI API Token** (`CLOUDFLARE_API_TOKEN`). Ce moteur offre 10 000 neurones par jour, environ 80 à 90 simulations par jour avec `flux-2-klein-4b`. Limite : les images d'entrée sont réduites à moins de 512 px, donc les détails sont moins fins, mais les zones protégées gardent la photo d'origine en pleine résolution. Les photos produit du catalogue ne sont pas transmises : seule leur description passe au modèle.
+
 - **Gemini** : clé sur https://aistudio.google.com/apikey. Pas d'offre gratuite pour la génération d'images via l'API : active la facturation (Google offre 300 $ de crédit aux nouveaux comptes Cloud). Compte environ 0,04 $ par image. Modèle par défaut : `gemini-3.1-flash-image`. Pour essayer Nano Banana 2.1, mets `GEMINI_MODEL=gemini-nano-banana-2.1`.
 - **Pollinations** : clé secrète `sk_…` sur https://enter.pollinations.ai. Démarrage gratuit avec les crédits « quêtes », puis Pollen payant. Modèle par défaut : `google/gemini-2.5-flash-image` (accepte plusieurs images). Alternatives : `bytedance/seedream-4.0`, `black-forest-labs/flux.2-klein-4b`.
 

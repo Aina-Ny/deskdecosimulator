@@ -97,6 +97,15 @@ export async function compressImage(file: File, maxEdge = 1024): Promise<{ dataU
   return { dataUrl, inline: dataUrlToInline(dataUrl) };
 }
 
+/** Réduit une image (bord long ≤ maxEdge) — requis par Cloudflare (entrées < 512 px). */
+export async function downscaleInline(dataUrl: string, maxEdge: number): Promise<InlineImage> {
+  const img = await loadImage(dataUrl);
+  const scale = Math.min(1, maxEdge / Math.max(img.naturalWidth, img.naturalHeight));
+  const c = makeCanvas(Math.round(img.naturalWidth * scale), Math.round(img.naturalHeight * scale));
+  c.getContext('2d')!.drawImage(img, 0, 0, c.width, c.height);
+  return dataUrlToInline(c.toDataURL('image/jpeg', 0.9));
+}
+
 /** True si le masque contient au moins une zone peinte. */
 export function maskHasPaint(mask: HTMLCanvasElement) {
   const d = mask.getContext('2d')!.getImageData(0, 0, mask.width, mask.height).data;

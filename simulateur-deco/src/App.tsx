@@ -10,6 +10,7 @@ import {
   compositeProtected,
   compressImage,
   dataUrlToInline,
+  downscaleInline,
   downloadCanvas,
   inlineToDataUrl,
   loadImage,
@@ -192,6 +193,9 @@ function Simulator({ config, catalog, goAdmin }: { config: AppConfig; catalog: P
     abort.current = new AbortController();
     const signal = abort.current.signal;
     const productRefs = products.filter((p) => p.imageUrl).map((p) => ({ name: p.name, imageUrl: p.imageUrl! }));
+    // Cloudflare n'accepte que des images d'entrée < 512 px : on les réduit avant envoi.
+    const small = engine === 'cloudflare';
+    const fit = (dataUrl: string, inline: InlineImage) => (small ? downscaleInline(dataUrl, 504) : Promise.resolve(inline));
     try {
       setStatus('edit');
       const res = await api.generate(
@@ -202,8 +206,8 @@ function Simulator({ config, catalog, goAdmin }: { config: AppConfig; catalog: P
           aspect: source.aspect,
           width: source.width,
           height: source.height,
-          source: source.inline,
-          inspirations: inspirations.map((i) => i.inline),
+          source: await fit(source.dataUrl, source.inline),
+          inspirations: await Promise.all(inspirations.map((i) => fit(i.dataUrl, i.inline))),
           productRefs,
         },
         signal,
@@ -230,9 +234,9 @@ function Simulator({ config, catalog, goAdmin }: { config: AppConfig; catalog: P
             mode: 'panorama',
             prompt: buildPanoramaPrompt(prompt),
             aspect: '21:9',
-            width: 2048,
-            height: 1024,
-            source: dataUrlToInline(gen.url),
+            width: small ? 1024 : 2048,
+            height: small ? 512 : 1024,
+            source: await fit(gen.url, dataUrlToInline(gen.url)),
             inspirations: [],
             productRefs: [],
           },
